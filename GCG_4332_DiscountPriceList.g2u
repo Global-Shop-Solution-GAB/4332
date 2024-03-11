@@ -1,0 +1,205 @@
+Program.Sub.ScreenSU.Start
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+V.Global.sIn.Declare(String)
+V.Global.sIn1.Declare(String)
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+F.Intrinsic.Control.SetErrorHandler("Main_Err")
+F.Intrinsic.Control.ClearErrors
+
+
+V.Local.sError.Declare(String)
+
+V.Local.sRet.Declare(String)
+V.Local.sRet1.Declare(String)
+
+F.ODBC.Connection!con.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+Function.Intrinsic.UI.ShowOpenFileDialog("", "*.xls",V.Caller.FilesDir,V.Local.sRet) 
+
+'update list price first
+Function.Intrinsic.Control.CallSub(updateprice, "sRet", V.Local.sRet)
+'update alt Prices
+Function.Intrinsic.Control.CallSub(updatealtprice)
+'end program
+
+Function.Intrinsic.Control.CallSub(form_unload)
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Main_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_4332_DiscountPriceList.g2u",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	f.Intrinsic.Control.CallSub(form_unload)
+Function.Intrinsic.Control.EndIf
+Program.Sub.Main.End
+
+Program.Sub.UpdatePrice.Start
+F.Intrinsic.Control.SetErrorHandler("Main_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String)
+
+Function.Intrinsic.UI.InvokeWaitDialog( "Running Script", "Updating Prices")
+V.Local..BulkDeclareString(sRet,ssql)
+V.Local.iC.Declare(Long)
+Function.Automation.MSExcel.ReadSpreadsheet(V.Args.sRet, V.Local.sRet)
+'create datatable
+Function.Data.DataTable.CreateFromString("PRICE", V.Local.sRet, "PART*!*LOC*!*AMT_PRICE*!*MULT*!*VENDOR", "STRING*!*STRING*!*FLOAT*!*FLOAT*!*STRING", "*!*", "$!$",true)
+'add column for dictionary
+
+
+F.Data.DataTable.AddExpressionColumn("PRICE", "ALTPRICE","String","MULT * AMT_PRICE")
+f.Data.DataTable.AddColumn("PRICE","ALT_COST","FLOAT")
+f.Data.DataTable.SetValueFormat("PRICE",-1,"ALTPRICE","ALT_COST","#0.000000")
+
+f.Data.Dictionary.CreateFromSQL("vend","con","SELECT VENDOR, LEFT(NAME_VENDOR,20) as NAME_VENDOR from V_VENDOR_MASTER")
+F.Data.Dictionary.SetDefaultReturn("vend","")
+f.Data.DataTable.FillFromDictionary("PRICE","vend","vendor")
+Function.Intrinsic.UI.CloseWaitDialog
+Function.Intrinsic.UI.InvokeWaitDialog("Saving List Price and Alt Cost to DB","Updating Prices")
+Function.Data.DataTable.SaveToDB("PRICE", "con", "INVENTORY_MSTR", "PART*!*LOC", 256, "PART@!@PART*!*LOC@!@LOCATION*!*AMT_PRICE@!@AMT_PRICE*!*ALT_COST@!@AMT_ALT_COST")
+Function.Intrinsic.UI.CloseWaitDialog
+Function.Intrinsic.UI.InvokeWaitDialog("Saving Vendor Sort to DB","Updating Prices")
+Function.Data.DataTable.SaveToDB("PRICE", "con", "INVENTORY_MST2", "PART*!*LOC", 256, "PART@!@PART*!*LOC@!@LOCATION*!*VENDOR@!@NAME_VENDOR")
+Function.Intrinsic.UI.CloseWaitDialog
+
+'f.Data.Dictionary.CreateFromDataTable("vendnm","PRICE", "PART_LOC","vendor")
+
+''create dictionary to return all pairs
+
+'Function.Data.Dictionary.CreateFromDataTable("Dict", "PRICE", "PART_LOC", "AMT_PRICE")
+'Function.Data.Dictionary.ReturnAllPairs("Dict",V.Local.sRet)
+'F.Intrinsic.String.Split(V.Local.sRet, "!*!", V.Local.sRet)
+'F.Intrinsic.String.Replace(V.Local.sRet(0), "*!*", "','",V.Global.sIn) 
+
+'Function.Data.Dictionary.CreateFromDataTable("Dict1", "PRICE", "PART_LOC", "ALTPRICE")
+''sIn contains the part_loc for the sql query
+
+'F.Intrinsic.String.Build("Select rTrim(PART)+'-'+rTrim(LOCATION) as PART_LOC ,rTrim(PART) as PART, rTrim(LOCATION) as LOCATION, AMT_PRICE,AMT_ALT_COST From INVENTORY_MSTR",V.Global.sIn, V.Local.ssql)
+''create table from sql
+'F.Data.DataTable.CreateFromSQL("Master", "con", V.Local.ssql, TRUE)
+''Fill the new table from dictionary- these are the new prices
+'F.Data.Dictionary.setdefaultreturn("Dict", -1)
+'F.Data.Dictionary.setdefaultreturn("Dict1", -1)
+'F.Data.DataTable.FillFromDictionary("Master", "Dict",  "PART_LOC", "AMT_PRICE")
+'F.Data.DataTable.FillFromDictionary("Master", "Dict1",  "PART_LOC", "AMT_ALT_COST")
+''save to database
+'Function.Data.DataTable.SaveToDB("Master", "con", "INVENTORY_MSTR", "PART*!*LOCATION", 2, "PART@!@PART*!*LOCATION@!@LOCATION*!*AMT_PRICE@!@AMT_PRICE*!*AMT_ALT_COST@!@AMT_ALT_COST")
+'F.Data.DataTable.Close("PRICE")
+'F.Data.DataTable.Close("Master")
+'F.Data.Dictionary.Close("Dict")
+'F.Data.Dictionary.Close("Dict1")
+
+
+'F.Intrinsic.String.Build("Select rTrim(PART)+'-'+rTrim(LOCATION) as PART_LOC ,rTrim(PART) as PART, rTrim(LOCATION) as LOCATION, rTrim(NAME_VENDOR) as NAME_VENDOR from INVENTORY_MST2", V.Global.sIn, V.Local.ssql)
+'F.Data.DataTable.CreateFromSQL("MasterVen", "con", V.Local.ssql, TRUE)
+'F.Data.Dictionary.setdefaultreturn("vendnm","")
+'f.Data.DataTable.FillFromDictionary("MasterVen","vendnm","PART_LOC","NAME_VENDOR")
+'Function.Data.DataTable.SaveToDB("MasterVen", "con", "INVENTORY_MST2", "PART*!*LOCATION", 2, "PART@!@PART*!*LOCATION@!@LOCATION*!*NAME_VENDOR@!@NAME_VENDOR")
+
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Main_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_4332_DiscountPriceList.g2u",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	Function.Intrinsic.Control.CallSub(form_unload)
+Function.Intrinsic.Control.EndIf
+Program.Sub.UpdatePrice.End
+
+Program.Sub.Form_UnLoad.Start
+F.Intrinsic.Control.SetErrorHandler("Main_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String)
+
+'closing connection and ending program
+F.ODBC.Connection!con.Close
+Function.Intrinsic.Control.End
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Main_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_4332_DiscountPriceList.g2u",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	Function.Intrinsic.Control.End
+
+Function.Intrinsic.Control.EndIf
+Program.Sub.Form_UnLoad.End
+
+Program.Sub.UpdateAltPrice.Start
+F.Intrinsic.Control.SetErrorHandler("UpdateAltPrice_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String)
+V.Local.sHeader.Declare(String)
+Function.Intrinsic.UI.InvokeWaitDialog("Running Script","Updating Alt Prices" )
+
+V.Local..BulkDeclareString(ssql, sExp, sAltPrice, sMap)
+V.Local..BulkDeclareLong(iC, iNine)
+
+'add column for dictionary
+
+'create table using V.Global.sIn so only updating alt where price has changed
+
+F.Intrinsic.String.Build("Select rTrim(INV_ALT_PRICE.PART)+'-'+rTrim(INV_ALT_PRICE.LOCN) as PART_LOC ,rTrim(INV_ALT_PRICE.PART) as PART, rTrim(INV_ALT_PRICE.LOCN) as LOCN ,INV_ALT_PRICE.ALT_PRICE_10,INV_ALT_PRICE.ALT_PRICE_11,INV_ALT_PRICE.ALT_PRICE_12,INV_ALT_PRICE.ALT_PRICE_13,INV_ALT_PRICE.ALT_PRICE_14 From INV_ALT_PRICE", V.Global.sIn, V.Local.ssql)
+'create table from sql
+F.Data.DataTable.CreateFromSQL("Master", "con", V.Local.ssql)
+'add column
+F.Data.DataTable.AddColumn("Master", "AMT_PRICE", "Float")
+'create dict for list price
+F.Intrinsic.String.Build("Select rTrim(PART)+'-'+rTrim(LOCATION) as PART_LOC , Cast(AMT_PRICE as Float) as AMT_PRICE From INVENTORY_MSTR", V.Global.sIn, V.Local.ssql)
+F.Data.Dictionary.CreateFromsql("dict", "con",V.Local.ssql)
+F.Data.Dictionary.setdefaultreturn("dict",0)
+F.Data.DataTable.FillFromDictionary("Master", "dict",  "PART_LOC", "AMT_PRICE")
+
+
+'close dict
+F.Data.Dictionary.Close("dict")
+
+'for loop for 1-5
+F.Intrinsic.Control.For(V.Local.iC, 1, 5, 1)
+	'add expression column
+	F.Intrinsic.Math.Add(V.Local.iC, 9, V.Local.iNine)
+	F.Intrinsic.String.Build("([AMT_PRICE] * [ALT_PRICE_{0}])/100", V.Local.iNine, V.Local.sExp)
+	f.Intrinsic.String.Build("ALT_PRICE_{0}",v.Local.iC,v.Local.sHeader)
+	
+	Function.Data.DataTable.AddExpressionColumn("Master",v.Local.sHeader, "Float", V.Local.sExp)
+'	'create dictionaries and fill
+'	Function.Data.Dictionary.CreateFromDataTable("dict", "Master", "PART_LOC", "New")
+'	F.Intrinsic.String.Build("ALT_PRICE_{0}",V.Local.iC, V.Local.sAltPrice)
+'	F.Data.DataTable.FillFromDictionary("Master", "dict",  "PART_LOC", V.Local.sAltPrice)
+'	'close dict
+'	F.Data.Dictionary.Close("dict")
+	'delete column
+'	F.Data.DataTable.RemoveColumn("Master", "New")	
+	'save to db
+'	F.Intrinsic.String.Build("PART@!@PART*!*LOCN@!@LOCN*!*ALT_PRICE_{0}@!@ALT_PRICE_{0}", V.Local.iC, V.Local.sMap)
+'	Function.Data.DataTable.SaveToDB("Master", "con", "INV_ALT_PRICE", "PART*!*LOCN", 2, V.Local.sMap)
+F.Intrinsic.Control.Next(V.Local.iC)
+'	F.Intrinsic.String.Build("PART@!@PART*!*LOCN@!@LOCN*!*ALT_PRICE_1@!@ALT_PRICE_1*!*ALT_PRICE_2@!@ALT_PRICE_2*!*ALT_PRICE_3@!@ALT_PRICE_3*!*ALT_PRICE_4@!@ALT_PRICE_4*!*ALT_PRICE_5@!@ALT_PRICE_5", V.Local.iC, V.Local.sMap)
+Function.Intrinsic.UI.CloseWaitDialog
+Function.Intrinsic.UI.InvokeWaitDialog("Saving Alt Prices to DB","Updating Alt Prices")
+Function.Data.DataTable.SaveToDB("Master", "con", "INV_ALT_PRICE", "PART*!*LOCN", 2, "PART@!@PART*!*LOCN@!@LOCN*!*ALT_PRICE_1@!@ALT_PRICE_1*!*ALT_PRICE_2@!@ALT_PRICE_2*!*ALT_PRICE_3@!@ALT_PRICE_3*!*ALT_PRICE_4@!@ALT_PRICE_4*!*ALT_PRICE_5@!@ALT_PRICE_5")
+Function.Intrinsic.UI.CloseWaitDialog
+F.Data.DataTable.Close("Master")
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("UpdateAltPrice_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_4332_DiscountPriceList.g2u",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	Function.Intrinsic.Control.CallSub(form_unload)
+Function.Intrinsic.Control.EndIf
+Program.Sub.UpdateAltPrice.End
+
+Program.Sub.Comments.Start
+${$0$}$$}$WAW$}$1/26/2017 11:58:42 AM$}$False
+Program.Sub.Comments.End
