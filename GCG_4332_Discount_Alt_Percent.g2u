@@ -1,0 +1,155 @@
+Program.Sub.Preflight.Start
+
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+F.Intrinsic.Control.Try
+	'this will update the alt prices from 1-5, only users in group 'PRICING' will have access to these fields
+	
+	
+	'populate hook
+	F.Intrinsic.Control.If(V.Caller.Hook,=,10120)
+		F.Intrinsic.Control.CallSub(ConfigureScreen)
+	'post save hook
+	F.Intrinsic.Control.ElseIf(V.Caller.Hook,=,10185)
+		F.ODBC.Connection!con.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+		F.Intrinsic.Control.CallSub(UpdatePrices)
+	F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(DisplayError, "Sub", V.Ambient.CurrentSubroutine, "Error", V.Ambient.ErrorNumber, "ErrorDescription", V.Ambient.ErrorDescription)
+F.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.ConfigureScreen.Start
+F.Intrinsic.Control.Try
+	V.Local.bInGroup.Declare(Boolean)
+	
+	'1-5 always locked
+	F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000053, "LOCK", 1)
+	F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000054, "LOCK", 1)
+	F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000055, "LOCK", 1)
+	F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000056, "LOCK", 1)
+	F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000108, "LOCK", 1)
+		
+	'check user group
+	F.Global.Security.IsInGroup(V.Caller.User,"PRICING",V.Local.bInGroup)
+	
+	F.Intrinsic.Control.If(V.Local.bInGroup)
+		'unlock fields
+		F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000117, "LOCK", 0)
+		F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000118, "LOCK", 0)
+		F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000119, "LOCK", 0)
+		F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000120, "LOCK", 0)
+		F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000121, "LOCK", 0)
+		F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000017, "LOCK", 0)
+		
+	F.Intrinsic.Control.Else
+		'lock fields
+		F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000117, "LOCK", 1)
+		F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000118, "LOCK", 1)
+		F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000119, "LOCK", 1)
+		F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000120, "LOCK", 1)
+		F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000121, "LOCK", 1)
+		F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000017, "LOCK", 1)
+		
+	F.Intrinsic.Control.EndIf
+	
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(DisplayError, "Sub", V.Ambient.CurrentSubroutine, "Error", V.Ambient.ErrorNumber, "ErrorDescription", V.Ambient.ErrorDescription)
+F.Intrinsic.Control.EndTry
+Program.Sub.ConfigureScreen.End
+
+Program.Sub.UpdatePrices.Start
+F.Intrinsic.Control.Try
+	V.Local.sSQL.Declare(String)
+	V.Local.sExp.Declare(String)
+	V.Local.sAltPrice.Declare(String)
+	V.Local.sMap.Declare(String)
+	V.Local.sPart.Declare(String)
+	V.Local.sLoc.Declare(String)
+	V.Local.sAltPrice.Declare(Long)
+	V.Local.iNine.Declare(Long)
+	
+	V.Local.sPart.Set(V.Passed.000007.PSQLFriendly)
+	V.Local.sLoc.Set(V.Passed.000009.PSQLFriendly)
+	
+	'create table 
+	F.Intrinsic.String.Build("Select rTrim(INV_ALT_PRICE.PART)+'-'+rTrim(INV_ALT_PRICE.LOCN) as PART_LOC ,rTrim(INV_ALT_PRICE.PART) as PART, rTrim(INV_ALT_PRICE.LOCN) as LOCN ,INV_ALT_PRICE.ALT_PRICE_1,INV_ALT_PRICE.ALT_PRICE_2,INV_ALT_PRICE.ALT_PRICE_3,INV_ALT_PRICE.ALT_PRICE_4,INV_ALT_PRICE.ALT_PRICE_5,INV_ALT_PRICE.ALT_PRICE_10,INV_ALT_PRICE.ALT_PRICE_11,INV_ALT_PRICE.ALT_PRICE_12,INV_ALT_PRICE.ALT_PRICE_13,INV_ALT_PRICE.ALT_PRICE_14 From INV_ALT_PRICE Where PART = '{0}' And LOCN = '{1}'", V.Local.sPart, V.Local.sLoc,V.Local.ssql)
+	'create table from sql
+	F.Data.DataTable.CreateFromSQL("Master", "con", V.Local.ssql)
+	'add column
+	f.intrinsic.Control.if(v.DataTable.Master.RowCount,=,0)
+		f.Intrinsic.Control.CallSub(Unload)
+	f.Intrinsic.Control.EndIf
+	F.Data.DataTable.AddColumn("Master", "AMT_PRICE", "Float")
+	'create dict for list price
+	F.Intrinsic.String.Build("Select rTrim(PART)+'-'+rTrim(LOCATION) as PART_LOC , Cast(AMT_PRICE as Float) as AMT_PRICE From INVENTORY_MSTR Where PART = '{0}' And LOCATION = '{1}'", V.Local.sPart, V.Local.sLoc, V.Local.ssql)
+	F.Data.Dictionary.CreateFromsql("dict", "con",V.Local.ssql)
+	F.Data.DataTable.FillFromDictionary("Master", "dict",  "PART_LOC", "AMT_PRICE")
+	'close dict
+	F.Data.Dictionary.Close("dict")
+	'for loop for 1-5
+	F.Intrinsic.Control.For(V.Local.iC, 1, 5, 1)
+		'add expression column
+		F.Intrinsic.Math.Add(V.Local.iC, 9, V.Local.iNine)
+		F.Intrinsic.String.Build("([AMT_PRICE] * [ALT_PRICE_{0}])/100", V.Local.iNine, V.Local.sExp)
+		Function.Data.DataTable.AddExpressionColumn("Master", "New", "Float", V.Local.sExp)
+		'create dictionaries and fill
+		Function.Data.Dictionary.CreateFromDataTable("dict", "Master", "PART_LOC", "New")
+		F.Intrinsic.String.Build("ALT_PRICE_{0}",V.Local.iC, V.Local.sAltPrice)
+		F.Data.DataTable.FillFromDictionary("Master", "dict",  "PART_LOC", V.Local.sAltPrice)
+		'close dict
+		F.Data.Dictionary.Close("dict")
+		'delete column
+		F.Data.DataTable.RemoveColumn("Master", "New")
+		'save to db
+		F.Intrinsic.String.Build("PART@!@PART*!*LOCN@!@LOCN*!*ALT_PRICE_{0}@!@ALT_PRICE_{0}", V.Local.iC, V.Local.sMap)
+		Function.Data.DataTable.SaveToDB("Master", "con", "INV_ALT_PRICE", "PART*!*LOCN", 2, V.Local.sMap)
+	F.Intrinsic.Control.Next(V.Local.iC)
+	
+	'Display AltPrices 1-5 on screen for user to see
+	V.Passed.000053.Set(V.DataTable.Master(0).ALT_PRICE_1!FieldValFloat)
+	V.Passed.000054.Set(V.DataTable.Master(0).ALT_PRICE_2!FieldValFloat)
+	V.Passed.000055.Set(V.DataTable.Master(0).ALT_PRICE_3!FieldValFloat)
+	V.Passed.000056.Set(V.DataTable.Master(0).ALT_PRICE_4!FieldValFloat)
+	V.Passed.000108.Set(V.DataTable.Master(0).ALT_PRICE_5!FieldValFloat)
+	
+	F.Data.DataTable.Close("Master")
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(DisplayError, "Sub", V.Ambient.CurrentSubroutine, "Error", V.Ambient.ErrorNumber, "ErrorDescription", V.Ambient.ErrorDescription)
+F.Intrinsic.Control.EndTry
+Program.Sub.UpdatePrices.End
+
+Program.Sub.Unload.Start
+F.Intrinsic.Try
+	F.ODBC.Connection!con.Close
+	Function.Intrinsic.Control.End
+	
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(DisplayError, "Sub", V.Ambient.CurrentSubroutine, "Error", V.Ambient.ErrorNumber, "ErrorDescription", V.Ambient.ErrorDescription)
+F.Intrinsic.Control.EndTry
+Program.Sub.Unload.End
+
+Program.Sub.DisplayError.Start
+F.Intrinsic.Control.Try
+	V.Local.sErrorMessage.Declare(String)
+	
+	F.Intrinsic.String.Build("Program: GCG_4332_Discount_Alt_Percent.g2u{0}{0}Sub: {1}{0}Error: {2}{0}Error Description: {3}",V.Ambient.NewLine,V.Args.Sub,V.Args.Error,V.Args.ErrorDescription,V.Local.sErrorMessage)
+	F.Intrinsic.UI.Msgbox(V.Local.sErrorMessage,"GAB Error")
+	
+	F.Intrinsic.Control.If(V.Args.Sub.LCase,=,"unload")
+		F.Intrinsic.Control.End
+	F.Intrinsic.Control.EndIf
+	
+F.Intrinsic.Control.Catch
+	F.Intrinsic.UI.Msgbox("Fatal Error occurred in program GCG_4332_Discount_Alt_Percent.g2u","GAB Error")
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry
+Program.Sub.DisplayError.End
+
+Program.Sub.Comments.Start
+${$0$}$$}$DH1$}$1/30/2017 11:23:44 AM$}$False
+${$3$}$0$}$$}$0$}$-1$}$$}$12:00:00 AM$}$This project will run from a custom menu item.
+Program.Sub.Comments.End
